@@ -1,0 +1,36 @@
+# 1. BASE IMAGE: Start with a lightweight, official Python image
+# We use python:3.9-slim for better compatibility with native libraries
+FROM python:3.9-slim
+
+# 2. INSTALL SYSTEM DEPENDENCIES: Crucial step for OpenCV and face_recognition
+# These are Linux packages that must be installed before the Python libraries.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    libopenblas-dev \
+    liblapack-dev \
+    libxext6 \
+    libsm6 \
+    libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 3. SETUP: Set the working directory inside the container
+WORKDIR /app
+
+# 4. PYTHON DEPENDENCIES: Copy and install Python packages
+# Copy requirements.txt first to leverage Docker's caching
+COPY requirements.txt .
+
+# Install all packages listed in requirements.txt (including gunicorn)
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 5. CODE: Copy the rest of the application code
+# This includes app.py, your templates/, and the static/ folders
+COPY . .
+
+# 6. EXECUTION: Define the command to start the application
+# Use Gunicorn to run the 'app' object inside app.py, binding to the port 
+# provided by the hosting service (like Railway)
+ENV PORT 8080
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 app:app

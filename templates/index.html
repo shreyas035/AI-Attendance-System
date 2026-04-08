@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#007BFF">
+  <title>Attendance Pro</title>
+  
+  <!-- PWA Manifest Link (must point to /static/manifest.json) -->
+  <link rel="manifest" href="/static/manifest.json">
+  
+  <!-- Custom, Vibrant Styles -->
+  <link rel="stylesheet" href="/static/style.css">
+  
+  <!-- 💥 CRITICAL FIX: Load Font Awesome CSS (This makes the icons visible) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- External Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+</head>
+<body>
+  
+  <!-- Hidden Media Elements for Camera/Canvas -->
+  <video id="video" width="480" height="360" autoplay playsinline style="display:none;"></video>
+  <canvas id="canvas" width="480" height="360" style="display:none;"></canvas>
+  <canvas id="overlayCanvas" width="480" height="360" style="display:none;"></canvas>
+  
+  <!-- Custom Modal for QR Code Display -->
+  <div class="custom-modal-overlay" id="qrModal">
+    <div class="custom-modal-content">
+      <h3 id="qrModalTitle">Student Enrolled!</h3>
+      <img id="qrModalImage" src="" alt="QR Code" class="qr-code-display">
+      <p class="text-sm text-gray-600 mt-2">Scan this code to mark attendance offline.</p>
+      <button class="btn btn-primary mt-4" onclick="closeQrModal()">Close & Back to Dashboard</button>
+    </div>
+  </div>
+
+  <!-- Custom Alert Modal (Replaces browser alerts) -->
+  <div class="custom-modal-overlay" id="alertModal">
+    <div class="custom-modal-content max-w-sm">
+      <h3 id="alertModalTitle" class="text-xl font-semibold text-gray-800">Alert</h3>
+      <p id="alertModalMessage" class="mt-3 text-gray-600"></p>
+      <button class="btn btn-primary mt-5" onclick="closeAlertModal()">OK</button>
+    </div>
+  </div>
+
+  <!-- Main Viewport where all templates are rendered -->
+  <div class="main-view" id="mainView"></div>
+
+  <!-- ================================== TEMPLATES ================================== -->
+
+  <template id="createAccount-template">
+    <div class="card-container" id="createAccount">
+      <h2><i class="fas fa-user-plus"></i> Create Account</h2>
+      <div class="form">
+        <input type="text" id="regName" placeholder="Username">
+        <input type="password" id="regPass" placeholder="Password">
+        <input type="password" id="regCPass" placeholder="Confirm Password">
+        <button class="btn btn-primary" onclick="register()">Register</button>
+      </div>
+      <div class="link-text" onclick="showPage('loginPage')">Already have an account? <span>Login</span></div>
+    </div>
+  </template>
+  
+  <template id="loginPage-template">
+    <div class="card-container" id="loginPage">
+      <h2><i class="fas fa-sign-in-alt"></i> Login</h2>
+      <div class="form">
+        <input type="text" id="loginName" placeholder="Username">
+        <input type="password" id="loginPass" placeholder="Password">
+        <button class="btn btn-primary" onclick="login()">Login</button>
+      </div>
+      <div class="link-text" onclick="showPage('createAccount')">Don't have an account? <span>Create one</span></div>
+    </div>
+  </template>
+  
+  <template id="dashboard-template">
+    <div class="card-container dashboard-grid" id="dashboard">
+      <h2>Attendance Dashboard</h2>
+      <div class="actions-grid">
+        <button class="btn btn-secondary" onclick="showPage('registerStudent')"><i class="fas fa-user-check"></i> Register Student</button>
+        <button class="btn btn-secondary" onclick="showPage('liveAttendancePage')"><i class="fas fa-video"></i> Live Face Scan</button>
+        <button class="btn btn-secondary" onclick="showPage('qrScannerPage')"><i class="fas fa-qrcode"></i> Scan QR Code</button>
+        <button class="btn btn-primary" onclick="showPage('analyticsPage')"><i class="fas fa-chart-line"></i> View Analytics</button>
+        <button class="btn btn-secondary" onclick="showPage('attendanceRecord')"><i class="fas fa-clipboard-list"></i> Attendance Log</button>
+        <button class="btn btn-danger" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+      </div>
+    </div>
+  </template>
+  
+  <template id="registerStudent-template">
+    <div class="card-container" id="registerStudent">
+      <h2><i class="fas fa-user-plus"></i> Enroll Student</h2>
+      <p class="text-sm mb-4 text-center text-gray-600">Ensure the face is clearly visible when capturing the image.</p>
+      <div id="webcam-container" class="camera-container"></div>
+      <div class="form mt-4">
+        <input type="text" id="stuName" placeholder="Student Name (e.g., JohnDoe)">
+        <button class="btn btn-secondary" onclick="startEnrollmentCamera()"><i class="fas fa-camera"></i> Start Camera</button>
+        <button class="btn btn-primary" onclick="saveStudent()"><i class="fas fa-save"></i> Capture & Save Student</button>
+      </div>
+      <div class="link-text" onclick="stopCamera(); showPage('dashboard');"><i class="fas fa-arrow-left"></i> Back to Dashboard</div>
+    </div>
+  </template>
+  
+  <template id="liveAttendancePage-template">
+    <div class="card-container" id="liveAttendancePage">
+      <h2><i class="fas fa-video"></i> Live Attendance Scan</h2>
+      <p class="text-sm mb-4 text-center text-gray-600">Scanning for known faces in real-time...</p>
+      <div id="live-webcam-container" class="camera-container"></div>
+      <div id="recognition-status" class="status-box">Scanning...</div>
+      <div class="link-text" onclick="stopCamera(); showPage('dashboard');"><i class="fas fa-arrow-left"></i> Back to Dashboard</div>
+    </div>
+  </template>
+  
+  <template id="qrScannerPage-template">
+    <div class="card-container" id="qrScannerPage">
+      <h2><i class="fas fa-qrcode"></i> Scan Student QR Code</h2>
+      <div id="qr-reader"></div>
+      <div id="qr-scan-result" class="status-box">Waiting for scan...</div>
+      <div class="link-text" onclick="stopQrScanner(); showPage('dashboard');"><i class="fas fa-arrow-left"></i> Back to Dashboard</div>
+    </div>
+  </template>
+  
+  <template id="analyticsPage-template">
+    <div id="analyticsPage">
+      <div class="sidebar">
+        <h2 class="sidebar-title"><i class="fas fa-chart-pie"></i> Analytics Dashboard</h2>
+        
+        <div class="filter-group">
+          <label for="studentFilter">Student Filter</label>
+          <select id="studentFilter"></select>
+        </div>
+        <div class="filter-group">
+          <label for="startDate">Start Date</label>
+          <input type="date" id="startDate">
+        </div>
+        <div class="filter-group">
+          <label for="endDate">End Date</label>
+          <input type="date" id="endDate">
+        </div>
+        
+        <button class="btn btn-primary btn-block" onclick="applyAnalyticsFilters()"><i class="fas fa-search"></i> Apply Filters</button>
+        <button class="btn btn-secondary btn-block" onclick="resetAnalyticsFilters()"><i class="fas fa-redo"></i> Reset Filters</button>
+        
+        <hr class="my-4">
+        
+        <button class="btn btn-export btn-block" onclick="exportAnalyticsToCSV()"><i class="fas fa-file-csv"></i> Export Data to CSV</button>
+        
+        <div class="link-text mt-auto" onclick="showPage('dashboard')"><i class="fas fa-arrow-left"></i> Back to Dashboard</div>
+      </div>
+      
+      <div class="main-content">
+        <h1 class="page-header">Attendance Insights</h1>
+        
+        <div class="kpi-grid">
+          <div class="stat-card"><h3><i class="fas fa-users"></i> Students Present</h3><p id="totalStudentsPresent">0</p></div>
+          <div class="stat-card"><h3><i class="fas fa-calendar-check"></i> Days Tracked</h3><p id="totalDaysInPeriod">0</p></div>
+          <div class="stat-card"><h3><i class="fas fa-tasks"></i> Total Records</h3><p id="totalRecords">0</p></div>
+          <div class="stat-card"><h3><i class="fas fa-star"></i> Busiest Day</h3><p id="busiestDay" class="highlight-day">N/A</p></div>
+        </div>
+
+        <div class="chart-grid">
+            <div class="chart-container"><h3 class="chart-title"><i class="fas fa-chart-area"></i> Attendance Trend</h3><canvas id="dateChart"></canvas></div>
+            <div class="chart-container wide-chart"><h3 class="chart-title"><i class="fas fa-chart-bar"></i> Student Attendance Percentage</h3><canvas id="studentChart"></canvas></div>
+        </div>
+        <div class="chart-grid">
+            <div class="chart-container full-width-chart"><h3 class="chart-title"><i class="fas fa-pie-chart"></i> Attendance by Source</h3><canvas id="sourceChart"></canvas></div>
+        </div>
+        
+        <div class="chart-container full-width-chart">
+          <h3 class="chart-title"><i class="fas fa-table"></i> Detailed Log</h3>
+          <div class="table-scroll-container">
+            <table id="detailsTable">
+              <thead><tr><th>ID</th><th>Name</th><th>Date</th><th>Timestamp</th><th>Source</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <template id="attendanceRecord-template">
+    <div class="card-container" id="attendanceRecord">
+      <h2><i class="fas fa-clipboard-list"></i> All Attendance Records</h2>
+      <div class="table-scroll-container full-width-table">
+        <table id="attendance-table">
+          <thead><tr><th>ID</th><th>Name</th><th>Date</th><th>Status</th><th>Timestamp</th><th>Source</th></tr></thead>
+          <tbody id="attendanceTable"></tbody>
+        </table>
+      </div>
+      <div class="link-text" onclick="showPage('dashboard')"><i class="fas fa-arrow-left"></i> Back to Dashboard</div>
+    </div>
+  </template>
+
+  <!-- IMPORTANT: Removed the separate Font Awesome JS script tag here -->
+  
+  <!-- Main Application Script -->
+  <script src="/static/script.js" defer></script>
+</body>
+</html>
